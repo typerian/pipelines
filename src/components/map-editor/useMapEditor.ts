@@ -51,17 +51,20 @@ export const useMapEditor = (savedGeometries: any) => {
       if (!map.hasControl(draw as any)) {
         map.addControl(draw as any);
       }
+      // ASIGNACIÓN SEGURA: Las refs se activan solo cuando el mapa cargó
+      mapRef.current = map;
+      drawRef.current = draw;
     });
 
     // --- LÓGICA DE POPUPS (CLIC EN EL MAPA) ---
     map.on("click", (e) => {
-      if (!drawRef.current) return;
+      const drawInstance = drawRef.current;
+      if (!drawInstance) return;
 
-      const features = drawRef.current.getFeatureIdsAt(e.point);
+      const features = drawInstance.getFeatureIdsAt(e.point);
 
-      if (features.length > 0) {
-        const featureId = features[0];
-        const feature = drawRef.current.get(featureId!);
+      if (features.length > 0 && features[0]) {
+        const feature = drawInstance.get(features[0]);
 
         if (feature && feature.properties) {
           setPopupInfo({
@@ -112,24 +115,19 @@ export const useMapEditor = (savedGeometries: any) => {
     map.on("draw.modechange", handleModeChange);
 
     return () => {
-      if (mapRef.current) {
-        // 1. Quitar eventos primero
-        mapRef.current.off("draw.create", handleCreate);
-        mapRef.current.off("draw.modechange", handleModeChange);
+      if (map) {
+        // Limpieza de eventos
+        map.off("draw.create", handleCreate);
+        map.off("draw.modechange", handleModeChange);
 
-        // 2. Intentar quitar el control con seguridad
         try {
-          if (draw && mapRef.current.hasControl(draw as any)) {
-            mapRef.current.removeControl(draw as any);
+          if (map.hasControl(draw as any)) {
+            map.removeControl(draw as any);
           }
-        } catch (e) {
-          // Ignoramos silenciosamente si ya no existe el control
-        }
+        } catch (e) {}
 
-        // 3. Destruir mapa
-        mapRef.current.remove();
-
-        // 4. Limpiar refs al final
+        map.remove();
+        // Limpiamos las refs
         mapRef.current = null;
         drawRef.current = null;
       }
@@ -137,14 +135,42 @@ export const useMapEditor = (savedGeometries: any) => {
   }, [draw]);
 
   // Sincronizar datos guardados (DB -> Mapa)
+  // Sincronizar datos guardados (DB -> Mapa)
   useEffect(() => {
-    if (drawRef.current && savedGeometries) {
-      drawRef.current.deleteAll();
-      savedGeometries.forEach((g: any) => {
-        drawRef.current?.add(g.data);
-      });
+    const drawInstance = drawRef.current;
+    const mapInstance = mapRef.current;
+
+    if (drawInstance && mapInstance && savedGeometries) {
+      const syncData = () => {
+        // Verificamos que las capas de Draw existan en el estilo del mapa
+        // MapboxDraw inyecta capas que empiezan por 'gl-draw'
+        const isDrawReady = mapInstance
+          .getStyle()
+          ?.layers?.some((l) => l.id.includes("gl-draw"));
+
+        if (!isDrawReady) {
+          // Si no está listo, reintentamos en el siguiente frame
+          setTimeout(syncData, 50);
+          return;
+        }
+
+        try {
+          drawInstance.deleteAll();
+          savedGeometries.forEach((g: any) => {
+            if (g.data) drawInstance.add(g.data);
+          });
+        } catch (error) {
+          console.error("Error crítico en syncData:", error);
+        }
+      };
+
+      if (!mapInstance.loaded()) {
+        mapInstance.once("load", syncData);
+      } else {
+        syncData();
+      }
     }
-  }, [savedGeometries]);
+  }, [savedGeometries]); // Eliminamos draw de las dependencias ya que es un useMemo estable
 
   const confirmFeatureData = useCallback(
     (formData: any) => {

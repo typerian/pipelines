@@ -112,18 +112,24 @@ export const useMapEditor = (savedGeometries: any) => {
     map.on("draw.modechange", handleModeChange);
 
     return () => {
-      if (map) {
-        // 1. Intentamos quitar el control primero si existe
+      if (mapRef.current) {
+        // 1. Quitar eventos primero
+        mapRef.current.off("draw.create", handleCreate);
+        mapRef.current.off("draw.modechange", handleModeChange);
+
+        // 2. Intentar quitar el control con seguridad
         try {
-          if (map.hasControl(draw as any)) {
-            map.removeControl(draw as any);
+          if (draw && mapRef.current.hasControl(draw as any)) {
+            mapRef.current.removeControl(draw as any);
           }
         } catch (e) {
-          console.warn("Error eliminando el control de dibujo:", e);
+          // Ignoramos silenciosamente si ya no existe el control
         }
 
-        // 2. Destruimos el mapa por completo
-        map.remove();
+        // 3. Destruir mapa
+        mapRef.current.remove();
+
+        // 4. Limpiar refs al final
         mapRef.current = null;
         drawRef.current = null;
       }
@@ -180,8 +186,13 @@ export const useMapEditor = (savedGeometries: any) => {
   );
 
   const cancelFeature = useCallback(() => {
+    // Usamos el encadenamiento opcional ?. para evitar el error si es undefined
     if (modalState.feature && drawRef.current) {
-      drawRef.current.delete(modalState.feature.id);
+      try {
+        drawRef.current.delete(modalState.feature.id);
+      } catch (e) {
+        console.warn("No se pudo borrar el feature al cancelar:", e);
+      }
     }
     setModalState({ isOpen: false, feature: null, geometryType: "Point" });
     isHandlingFeature.current = false;

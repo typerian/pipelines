@@ -56,7 +56,9 @@ export const InfrastructureModal = ({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold text-white">
               <Settings2 size={18} className="text-blue-400" />
-              Identificar Elemento
+              {feature?.geometry?.type === "LineString"
+                ? "Identificar Tubería"
+                : "Identificar Elemento"}
             </DialogTitle>
           </DialogHeader>
         </div>

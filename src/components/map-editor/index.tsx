@@ -20,8 +20,8 @@ interface MapFeature {
 
 interface ModalState {
   isOpen: boolean;
-  feature: MapFeature | null; // Aquí está el truco: puede ser un Feature o null
-  geometryType: "Point" | "LineString" | "Polygon";
+  feature: MapFeature | null;
+  geometryType: "Point" | "LineString" | "Polygon" | null; // Añade null aquí si quieres iniciar en null
 }
 
 export default function MapEditor({
@@ -35,7 +35,7 @@ export default function MapEditor({
   // 2. Estados de UI (puedes mover estos a un hook de lógica si crecen mucho)
   const [popupInfo, setPopupInfo] = useState<any>(null);
   const [mode, setMode] = useState("simple_select");
-  const [modalState, setModalState] = useState({
+  const [modalState, setModalState] = useState<ModalState>({
     isOpen: false,
     feature: null,
     geometryType: null,
@@ -44,10 +44,11 @@ export default function MapEditor({
   const handleConfirmFeature = (formData: any) => {
     const { feature } = modalState;
     const drawInstance = drawRef.current;
+
+    // Con el tipado correcto, este check ya habilita el acceso a feature.id
     if (!feature || !drawInstance) return;
 
-    // 1. Definimos el objeto con una firma de índice [key: string]: any
-    const properties: { [key: string]: any } = {
+    const properties: Record<string, any> = {
       ramal: formData.ramal,
       tipo: formData.tipo,
       emoji: formData.emoji,
@@ -58,7 +59,7 @@ export default function MapEditor({
       tamano: formData.tamano,
     };
 
-    // 2. Ahora TypeScript te permitirá usar properties[key] sin quejarse
+    // Actualizar propiedades en el motor de Mapbox Draw
     Object.keys(properties).forEach((key) => {
       if (properties[key] !== undefined) {
         drawInstance.setFeatureProperty(`${feature.id}`, key, properties[key]);
@@ -66,8 +67,15 @@ export default function MapEditor({
     });
 
     setModalState({ ...modalState, isOpen: false, feature: null });
-    console.log("Datos guardados en el mapa:", properties);
   };
+
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.on("click", () => {
+        console.log("CLIC DIRECTO EN EL MAPA");
+      });
+    }
+  }, [mapRef.current]);
 
   // Solo para probar en MapEditor.tsx
   useEffect(() => {

@@ -1,183 +1,122 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
-import { api } from "~/trpc/react";
-import { useMapEditor } from "./useMapEditor";
-import { MapDashboard } from "./dashboard";
-import { MapSearchBar } from "./search-bar";
-import { MapToolbar } from "./toolbar";
-import { InfrastructureModal } from "../infrastructure-modal";
-import { FeaturePopup } from "./features-popup";
-import { TanquillaMarker } from "./tanquilla-marker";
-import maplibregl from "maplibre-gl";
+import React, { useEffect, useState } from "react";
+import { useMapInit } from "./hooks/useMapInit";
+import { MapSync } from "./components/MapSync";
+import { MapEvents } from "./components/MapEvents"; // El nuevo componente de eventos
+import { InfrastructureModal } from "./components/InfrastructureModal";
 
-export default function MapEditor() {
-  const utils = api.useUtils();
-  const { data: savedGeometries } = api.geometry.getAll.useQuery();
+import { MapToolbar } from "./components/MapToolbar";
+import { FeaturePopup } from "./components/FeaturesPopup";
+// Define qué es un Feature de MapboxDraw para TypeScript
+interface MapFeature {
+  id: string | number;
+  properties: any;
+  geometry: {
+    type: string;
+    coordinates: any[];
+  };
+}
 
-  const saveMutation = api.geometry.createBatch.useMutation({
-    onSuccess: () => {
-      void utils.geometry.getAll.invalidate();
-    },
+interface ModalState {
+  isOpen: boolean;
+  feature: MapFeature | null; // Aquí está el truco: puede ser un Feature o null
+  geometryType: "Point" | "LineString" | "Polygon";
+}
+
+export default function MapEditor({
+  savedGeometries,
+}: {
+  savedGeometries: any;
+}) {
+  // 1. Inicializamos el núcleo del mapa
+  const { mapContainer, mapRef, drawRef, draw } = useMapInit();
+
+  // 2. Estados de UI (puedes mover estos a un hook de lógica si crecen mucho)
+  const [popupInfo, setPopupInfo] = useState<any>(null);
+  const [mode, setMode] = useState("simple_select");
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    feature: null,
+    geometryType: null,
   });
 
-  const {
-    mapContainer,
-    mapRef,
-    drawRef,
-    mode,
-    modalState,
-    popupInfo, // Extraído del hook
-    setPopupInfo, // Extraído del hook
-    confirmFeatureData,
-    cancelFeature,
-  } = useMapEditor(savedGeometries);
+  const handleConfirmFeature = (formData: any) => {
+    const { feature } = modalState;
+    const drawInstance = drawRef.current;
+    if (!feature || !drawInstance) return;
 
-  const stats = useMemo(() => {
-    if (!savedGeometries) return { markers: 0, meters: 0 };
-    return savedGeometries.reduce(
-      (acc, curr) => {
-        if (curr.type === "Point") acc.markers += 1;
-        if (curr.type === "LineString") {
-          const m = curr.data.properties.pipeData?.lengthMeters || 0;
-          acc.meters += m;
-        }
-        return acc;
-      },
-      { markers: 0, meters: 0 },
-    );
-  }, [savedGeometries]);
+    // 1. Definimos el objeto con una firma de índice [key: string]: any
+    const properties: { [key: string]: any } = {
+      ramal: formData.ramal,
+      tipo: formData.tipo,
+      emoji: formData.emoji,
+      asunto: formData.asunto,
+      detalle: formData.detalle,
+      observacion: formData.observacion_tanquilla,
+      tipo_valvula: formData.tipo_valvula,
+      tamano: formData.tamano,
+    };
 
-  const handleFinalSave = () => {
-    if (!drawRef.current) return;
-    const data = drawRef.current.getAll();
-    const toSave = data.features.map((f: any) => ({
-      name: f.properties?.name || "Sin identificación",
-      type: f.geometry.type,
-      data: f,
-      source: "manual" as const,
-    }));
-    saveMutation.mutate(toSave);
+    // 2. Ahora TypeScript te permitirá usar properties[key] sin quejarse
+    Object.keys(properties).forEach((key) => {
+      if (properties[key] !== undefined) {
+        drawInstance.setFeatureProperty(`${feature.id}`, key, properties[key]);
+      }
+    });
+
+    setModalState({ ...modalState, isOpen: false, feature: null });
+    console.log("Datos guardados en el mapa:", properties);
   };
 
-  const handleFlyTo = (coords: [number, number]) => {
-    mapRef.current?.flyTo({ center: coords, zoom: 18, essential: true });
-  };
-
-  // Dentro de tu componente MapEditor
+  // Solo para probar en MapEditor.tsx
   useEffect(() => {
-    if (!mapRef.current || !popupInfo) return;
-
-    // Creamos el popup nativo
-    const popup = new maplibregl.Popup({
-      closeButton: false,
-      offset: 15,
-      maxWidth: "300px",
-      className: "z-50 shadow-2xl",
-    })
-      .setLngLat([popupInfo.lngLat.lng, popupInfo.lngLat.lat])
-      .setHTML('<div id="popup-root"></div>') // Creamos un contenedor vacío
-      .addTo(mapRef.current);
-
-    // Inyectamos nuestro componente FeaturePopup de React dentro del popup de MapLibre
-    const container = document.getElementById("popup-root");
-    if (container) {
-      const { createRoot } = require("react-dom/client");
-      const root = createRoot(container);
-      root.render(<FeaturePopup data={popupInfo.properties} />);
-
-      // Limpieza al cerrar el popup
-      popup.on("close", () => {
-        setPopupInfo(null);
-        root.unmount();
+    if (mapRef.current) {
+      mapRef.current.on("click", () => {
+        console.log("CLIC DIRECTO EN EL MAPA");
       });
     }
-
-    return () => {
-      popup.remove();
-    };
-  }, [popupInfo, mapRef]);
+  }, [mapRef.current]);
 
   return (
-    <div className="flex h-screen w-full flex-col gap-4 bg-slate-100 p-4 md:p-6">
-      <header className="flex items-center justify-between rounded-2xl border bg-white px-6 py-4 shadow-sm">
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-slate-800 uppercase">
-            GIS Hidráulico
-          </h2>
-          <p className="text-xs font-medium text-slate-400">
-            Gestión de Tuberías y Válvulas
-          </p>
-        </div>
-        <button
-          onClick={handleFinalSave}
-          disabled={saveMutation.isPending}
-          className="rounded-xl bg-blue-600 px-8 py-2.5 font-bold text-white transition-all hover:bg-blue-700 hover:shadow-lg active:scale-95 disabled:opacity-50"
-        >
-          {saveMutation.isPending ? "Guardando..." : "Sincronizar Red"}
-        </button>
-      </header>
-
-      <MapDashboard stats={stats} />
-
-      <div className="relative flex-1 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
-        <MapSearchBar
-          items={savedGeometries || []}
-          onResultClick={handleFlyTo}
-        />
-
-        <div ref={mapContainer} className="h-full w-full" />
-
-        {mapRef.current &&
-          savedGeometries
-            ?.filter((g) => g.type === "Point")
-            .map((point) => {
-              const [lng, lat] = (point.data.geometry as any).coordinates;
-              return (
-                <TanquillaMarker
-                  key={point.id}
-                  map={mapRef.current!} // Pasamos la instancia nativa
-                  lng={lng}
-                  lat={lat}
-                  name={point.name}
-                  onClick={() => {
-                    // Aquí disparamos el popup nativo desde la instancia del mapa
-                    new maplibregl.Popup({ closeButton: false, offset: 15 })
-                      .setLngLat([lng, lat])
-                      .setHTML(`<div class="p-2 font-bold">${point.name}</div>`)
-                      .addTo(mapRef.current!);
-                  }}
-                />
-              );
-            })}
-
-        {/* --- RENDERIZADO DE POPUPS --- */}
-
-        <div className="absolute bottom-6 left-6 z-10 rounded-2xl border bg-white/80 px-4 py-2 text-[11px] font-black tracking-widest text-slate-600 uppercase shadow-xl backdrop-blur-md">
-          {mode === "simple_select" ? "🔍 Exploración" : "✍️ Editando Red"}
-        </div>
-      </div>
-
-      <MapToolbar
-        onAction={(action) => {
-          if (!drawRef.current) return;
-          if (action === "trash") {
-            drawRef.current.trash();
-          } else {
-            (drawRef.current as any).changeMode(action);
-          }
-        }}
-        currentMode={mode}
+    <div className="relative h-screen w-full overflow-hidden bg-slate-50">
+      {" "}
+      {/* --- LIENZO DEL MAPA --- */}
+      <div ref={mapContainer} className="h-full w-full" />
+      {/* --- LÓGICA SEGREGADA (Sin representación visual directa) --- */}
+      {/* Responsabilidad: Sincronizar DB -> Mapa */}
+      <MapSync mapRef={mapRef} drawRef={drawRef} data={savedGeometries} />
+      {/* Responsabilidad: Escuchar eventos de dibujo y clics */}
+      <MapEvents
+        mapRef={mapRef}
+        drawRef={drawRef}
+        setMode={setMode}
+        setModalState={setModalState} // <--- Asegúrate que sea este
+        setPopupInfo={setPopupInfo}
       />
-
+      {/* Responsabilidad: Renderizar iconos de Tanquillas (React Markers) */}
+      {/* --- COMPONENTES DE INTERFAZ (UI) --- */}
+      <MapToolbar drawRef={drawRef} mapRef={mapRef} currentMode={mode} />
+      {/* Popups de información */}
+      {popupInfo && (
+        <FeaturePopup
+          mapRef={mapRef}
+          info={popupInfo}
+          onClose={() => setPopupInfo(null)}
+        />
+      )}
+      {/* Modal de formulario para nuevas tuberías/tanquillas */}
+      {/* Modal de formulario para nuevas tuberías/tanquillas */}
       <InfrastructureModal
         isOpen={modalState.isOpen}
-        geometryType={modalState.geometryType}
-        onClose={cancelFeature}
-        onSubmit={(formData) => {
-          confirmFeatureData(formData);
-        }}
+        feature={modalState.feature}
+        onClose={() => setModalState({ ...modalState, isOpen: false })}
+        onSubmit={handleConfirmFeature}
       />
+      {/* Indicador de modo actual */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full bg-white/90 px-4 py-1 text-xs font-medium shadow-sm backdrop-blur-md">
+        Modo: {mode === "simple_select" ? "Selección" : "Dibujando..."}
+      </div>
     </div>
   );
 }

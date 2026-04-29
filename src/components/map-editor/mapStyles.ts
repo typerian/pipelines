@@ -22,18 +22,6 @@ export const mapLibreStyles = [
       "fill-opacity": 0.2,
     },
   },
-
-  // --- LÍNEAS (Y CONTORNOS DE POLÍGONOS) ---
-  {
-    id: "gl-draw-line-inactive",
-    type: "line",
-    filter: ["all", ["==", "active", "false"], ["==", "$type", "LineString"]],
-    layout: { "line-cap": "round", "line-join": "round" },
-    paint: {
-      "line-color": "#3bb2d0",
-      "line-width": 3,
-    },
-  },
   {
     id: "gl-draw-line-active",
     type: "line",
@@ -47,19 +35,6 @@ export const mapLibreStyles = [
   },
 
   // --- MARCADORES PERSONALIZADOS (PUNTOS) ---
-  {
-    id: "gl-draw-point-inactive",
-    type: "circle",
-    filter: ["all", ["==", "active", "false"], ["==", "$type", "Point"]],
-    paint: {
-      "circle-radius": 0, // Invisible
-      "circle-opacity": 0,
-    },
-    // Esto es clave: hacemos que el motor de MapLibre ignore este punto para eventos
-    layout: {
-      visibility: "none",
-    },
-  },
 
   // --- PUNTOS EN EDICIÓN (CUANDO SE SELECCIONAN) ---
   {
@@ -84,6 +59,77 @@ export const mapLibreStyles = [
       "circle-color": "#fff",
       "circle-stroke-width": 1,
       "circle-stroke-color": "#3bb2d0",
+    },
+  },
+
+  // 1. ESTILO PARA LÍNEAS (TUBERÍAS) - Se mantiene igual
+  {
+    id: "gl-draw-line-inactive",
+    type: "line",
+    filter: [
+      "all",
+      ["==", "$geometryType", "LineString"],
+      ["!=", "mode", "static"],
+    ],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#4b5563", "line-width": 3 },
+  },
+
+  // 2. ESTILO PARA PUNTOS ACTUARIALES (TEMPORALES DURANTE DIBUJO)
+  // Mantenemos los círculos pequeños mientras el usuario está haciendo clic
+  {
+    id: "gl-draw-point-point-stroke-inactive",
+    type: "circle",
+    filter: [
+      "all",
+      ["==", "$geometryType", "Point"],
+      ["==", "active", "false"],
+    ],
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#fff",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#3b82f6",
+    },
+  },
+
+  // 3. ¡LA CLAVE!: ESTILO PARA PUNTOS FINALIZADOS (CON EMOJI)
+  // Este estilo renderiza el emoji como texto sobre el punto
+
+  {
+    id: "gl-draw-point-emoji", // Este ID es personalizado
+    type: "symbol",
+    filter: [
+      "all",
+      ["==", "$geometryType", "Point"],
+      ["==", "active", "false"],
+      ["has", "emoji"],
+    ],
+    layout: {
+      "text-field": ["get", "emoji"],
+      "text-size": 24,
+      "text-anchor": "center",
+      "text-allow-overlap": true,
+    },
+    // IMPORTANTE: Añade esto para que el motor de selección lo detecte
+    paint: {
+      "text-opacity": 1,
+    },
+  },
+  // AGREGAMOS UN "HITBOX" INVISIBLE
+  // Esto crea un área circular invisible alrededor del emoji para facilitar el clic
+  {
+    id: "gl-draw-point-inactive",
+    type: "circle",
+    filter: [
+      "all",
+      ["==", "$geometryType", "Point"],
+      ["==", "active", "false"],
+    ],
+    paint: {
+      "circle-radius": 15,
+      "circle-color": "#000",
+      "circle-opacity": 0, // Invisible pero clickable
     },
   },
 ];

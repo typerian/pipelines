@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { infrastructure, geometryTypeEnum } from "~/server/db/schema";
+import { infrastructure } from "~/server/db/schema";
 
 export const infrastructureRouter = createTRPCRouter({
   // PROCEDIMIENTO PARA CREAR

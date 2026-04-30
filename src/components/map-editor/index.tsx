@@ -5,9 +5,10 @@ import { useMapInit } from "./hooks/useMapInit";
 import { MapSync } from "./components/MapSync";
 import { MapEvents } from "./components/MapEvents"; // El nuevo componente de eventos
 import { InfrastructureModal } from "./components/InfrastructureModal";
-
 import { MapToolbar } from "./components/MapToolbar";
 import { FeaturePopup } from "./components/FeaturesPopup";
+import { api } from "~/trpc/react";
+
 // Define qué es un Feature de MapboxDraw para TypeScript
 interface MapFeature {
   id: string | number;
@@ -41,14 +42,21 @@ export default function MapEditor({
     geometryType: null,
   });
 
+  const utils = api.useUtils();
+
+  const createMutation = api.infrastructure.create.useMutation({
+    onSuccess: async () => {
+      await utils.infrastructure.invalidate();
+    },
+  });
+
   const handleConfirmFeature = (formData: any) => {
     const { feature } = modalState;
     const drawInstance = drawRef.current;
 
-    // Con el tipado correcto, este check ya habilita el acceso a feature.id
     if (!feature || !drawInstance) return;
 
-    const properties: Record<string, any> = {
+    const properties = {
       ramal: formData.ramal,
       tipo: formData.tipo,
       emoji: formData.emoji,
@@ -59,11 +67,22 @@ export default function MapEditor({
       tamano: formData.tamano,
     };
 
-    // Actualizar propiedades en el motor de Mapbox Draw
+    // Actualización visual inmediata
     Object.keys(properties).forEach((key) => {
-      if (properties[key] !== undefined) {
-        drawInstance.setFeatureProperty(`${feature.id}`, key, properties[key]);
+      const value = (properties as any)[key];
+      if (value !== undefined) {
+        drawInstance.setFeatureProperty(`${feature.id}`, key, value);
       }
+    });
+
+    // Persistencia en DB
+    createMutation.mutate({
+      id: crypto.randomUUID(), // Estándar moderno de JS para IDs únicos
+      mapboxId: `${feature.id}`,
+      geometryType: feature.geometry.type as "Point" | "LineString",
+      coordinates: feature.geometry.coordinates,
+      properties: properties,
+      ramal: formData.ramal,
     });
 
     setModalState({ ...modalState, isOpen: false, feature: null });

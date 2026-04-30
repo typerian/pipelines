@@ -1,100 +1,50 @@
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import {
-  geometries,
-  type WaterInfrastructureFeature,
-} from "~/server/db/schema";
-import { eq } from "drizzle-orm";
+import { infrastructure, geometryTypeEnum } from "~/server/db/schema";
 
-// Esquemas de validación reutilizables
-const PipeDataSchema = z.object({
-  diameter: z.string(),
-  hasCoating: z.boolean(),
-  coatingType: z.string().optional(),
-  lengthMeters: z.number(),
-});
-
-const ValveDataSchema = z.object({
-  valveType: z.string(),
-  valveSize: z.string(),
-  depth: z.string().optional(),
-});
-
-const FeatureSchema = z.object({
-  type: z.literal("Feature"),
-  geometry: z.object({
-    type: z.enum(["Point", "LineString", "Polygon"]),
-    // Forzamos que coordinates sea obligatorio y no undefined
-    coordinates: z.any().refine((val) => val !== undefined, {
-      message: "Coordinates are required",
-    }),
-  }),
-  properties: z.object({
-    name: z.string(),
-    description: z.string().optional(),
-    pipeData: PipeDataSchema.optional(),
-    valveData: ValveDataSchema.optional(),
-  }),
-});
-
-export const geometryRouter = createTRPCRouter({
-  // 1. OBTENER TODO (Lectura)
-  getAll: publicProcedure.query(async ({ ctx }) => {
-    return await ctx.db.select().from(geometries).all();
-  }),
-
-  // 2. CREACIÓN MASIVA (Sincronización inicial o importación)
-  createBatch: publicProcedure
-    .input(
-      z.array(
-        z.object({
-          name: z.string(),
-          type: z.string(),
-          source: z.enum(["manual", "kml"]),
-          data: FeatureSchema,
-        }),
-      ),
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Convertimos el input al tipo que la DB espera para que Drizzle no se queje
-      const values = input.map((item) => ({
-        ...item,
-        data: item.data as any, // O 'as WaterInfrastructureFeature' si lo tienes importado
-      }));
-
-      return await ctx.db.insert(geometries).values(values).run();
-    }),
-
-  // 3. ACTUALIZAR UN TRAZO ESPECÍFICO (Edición técnica)
-  update: publicProcedure
+export const infrastructureRouter = createTRPCRouter({
+  // PROCEDIMIENTO PARA CREAR
+  create: publicProcedure
     .input(
       z.object({
-        id: z.number(),
-        name: z.string().optional(),
-        data: FeatureSchema,
+        id: z.string(), // El ID que usaremos en la DB
+        mapboxId: z.string(),
+        geometryType: z.enum(["Point", "LineString"]),
+        coordinates: z.any(), // GeoJSON coordinates
+        properties: z.record(z.any()), // Los datos del modal (tipo, ramal, etc.)
+        ramal: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
-      return await ctx.db
-        .update(geometries)
-        .set({
-          ...updateData,
-          // Si TS sigue quejándose, forzamos el tipo aquí:
-          data: updateData.data as WaterInfrastructureFeature,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(geometries.id, id))
-        .run();
+      return await ctx.db.insert(infrastructure).values({
+        id: input.id,
+        mapboxId: input.mapboxId,
+        geometryType: input.geometryType,
+        coordinates: input.coordinates,
+        properties: input.properties,
+        ramal: input.ramal,
+      });
     }),
 
-  // 4. ELIMINAR UN TRAZO (Mantenimiento)
+  // PROCEDIMIENTO PARA OBTENER TODO (Para cargar el mapa al inicio)
+  getAll: publicProcedure.query(async ({ ctx }) => {
+    return await ctx.db.query.infrastructure.findMany();
+  }),
   delete: publicProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ mapboxId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return await ctx.db
-        .delete(geometries)
-        .where(eq(geometries.id, input.id))
-        .run();
+        .delete(infrastructure)
+        .where(eq(infrastructure.mapboxId, input.mapboxId));
+    }),
+
+  // OPCIONAL: Eliminar múltiples (útil si seleccionas varias líneas)
+  deleteMany: publicProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db
+        .delete(infrastructure)
+        .where(inArray(infrastructure.mapboxId, input.ids));
     }),
 });

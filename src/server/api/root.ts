@@ -1,4 +1,4 @@
-import { geometryRouter } from "~/server/api/routers/geometry";
+import { infrastructureRouter } from "~/server/api/routers/geometry";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 /**
@@ -7,7 +7,7 @@ import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
-  geometry: geometryRouter,
+  infrastructure: infrastructureRouter,
 });
 
 // export type definition of API
